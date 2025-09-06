@@ -4,8 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project West</title>
-    <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link href="app/globals.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
         import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
@@ -14,6 +15,7 @@
         const firebaseConfig = {
             apiKey: "AIzaSyCMPoFyJ2aMJZQTfcPotomOMSQHOwTvxeA",
             authDomain: "wplayer-emu.firebaseapp.com",
+            databaseURL: "https://wplayer-emu-default-rtdb.firebaseio.com/",
             projectId: "wplayer-emu",
             storageBucket: "wplayer-emu.appspot.com",
             messagingSenderId: "53115769174",
@@ -28,239 +30,193 @@
         let currentChat = 'general';
 
         // Initialize Telegram WebApp
-        window.Telegram.WebApp.ready();
-        window.Telegram.WebApp.expand();
-
-        // Test games data
-        const testGames = [
-            {
-                id: 1,
-                name: "Cyber Runner 2077",
-                description: "Футуристический экшен в киберпанк мире",
-                icon: "/placeholder.svg?height=80&width=80",
-                price: "1299 ₽"
-            },
-            {
-                id: 2,
-                name: "Fantasy Quest",
-                description: "Эпическое RPG приключение в мире магии",
-                icon: "/placeholder.svg?height=80&width=80",
-                price: "899 ₽"
-            },
-            {
-                id: 3,
-                name: "Space Explorer",
-                description: "Исследуй галактику в этом космическом симуляторе",
-                icon: "/placeholder.svg?height=80&width=80",
-                price: "1599 ₽"
-            },
-            {
-                id: 4,
-                name: "Racing Legends",
-                description: "Гоночный симулятор с реалистичной физикой",
-                icon: "/placeholder.svg?height=80&width=80",
-                price: "799 ₽"
-            }
-        ];
+        if (window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.ready();
+            window.Telegram.WebApp.expand();
+        }
 
         // Auth functions
-        async function signUp() {
-            const email = document.getElementById('signupEmail').value.trim();
-            const password = document.getElementById('signupPassword').value.trim();
-            const nickname = document.getElementById('signupNickname').value.trim();
-            
+        async function register() {
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            const nickname = document.getElementById('registerNickname').value;
+
             if (!email || !password || !nickname) {
                 alert('Пожалуйста, заполните все поля');
                 return;
             }
-            
-            if (password.length < 6) {
-                alert('Пароль должен содержать минимум 6 символов');
-                return;
-            }
-            
+
             try {
-                const result = await createUserWithEmailAndPassword(auth, email, password);
-                await updateProfile(result.user, {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+                
+                await updateProfile(user, {
                     displayName: nickname
                 });
-                
-                // Save user data to database
-                await set(ref(database, `users/${result.user.uid}`), {
-                    displayName: nickname,
+
+                // Save user to database
+                await set(ref(database, `users/${user.uid}`), {
                     email: email,
-                    photoURL: null,
+                    displayName: nickname,
+                    photoURL: user.photoURL || null,
                     createdAt: Date.now()
                 });
-                
-                currentUser = result.user;
+
+                // Also save by nickname for easy lookup
+                await set(ref(database, `usersByNickname/${nickname.toLowerCase()}`), user.uid);
+
+                alert('Регистрация успешна!');
                 showSection('profile');
-                updateUI();
             } catch (error) {
-                console.error('Ошибка регистрации:', error);
                 alert('Ошибка регистрации: ' + error.message);
             }
         }
 
-        async function signIn() {
-            const email = document.getElementById('loginEmail').value.trim();
-            const password = document.getElementById('loginPassword').value.trim();
-            
+        async function login() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+
             if (!email || !password) {
                 alert('Пожалуйста, заполните все поля');
                 return;
             }
-            
+
             try {
-                const result = await signInWithEmailAndPassword(auth, email, password);
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
                 
-                // Update user data in database if needed
-                const userRef = ref(database, `users/${result.user.uid}`);
-                const snapshot = await get(userRef);
-                
-                if (!snapshot.exists()) {
-                    await set(userRef, {
-                        displayName: result.user.displayName || 'Пользователь',
-                        email: result.user.email,
-                        photoURL: result.user.photoURL || null,
-                        lastLogin: Date.now()
-                    });
-                } else {
-                    await set(ref(database, `users/${result.user.uid}/lastLogin`), Date.now());
+                // Update user data in database
+                await set(ref(database, `users/${user.uid}`), {
+                    email: user.email,
+                    displayName: user.displayName,
+                    photoURL: user.photoURL || null,
+                    lastLogin: Date.now()
+                });
+
+                // Also save by nickname for easy lookup
+                if (user.displayName) {
+                    await set(ref(database, `usersByNickname/${user.displayName.toLowerCase()}`), user.uid);
                 }
-                
-                currentUser = result.user;
+
                 showSection('profile');
-                updateUI();
             } catch (error) {
-                console.error('Ошибка входа:', error);
                 alert('Ошибка входа: ' + error.message);
+            }
+        }
+
+        async function logout() {
+            await signOut(auth);
+            showSection('auth');
+        }
+
+        // Navigation functions
+        function showSection(sectionName) {
+            document.querySelectorAll('.section').forEach(section => {
+                section.style.display = 'none';
+            });
+            document.getElementById(sectionName).style.display = 'block';
+            
+            // Update navigation
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            const activeNavItem = document.querySelector(`[onclick="showSection('${sectionName}')"]`);
+            if (activeNavItem) {
+                activeNavItem.classList.add('active');
             }
         }
 
         function toggleAuthMode() {
             const loginForm = document.getElementById('loginForm');
-            const signupForm = document.getElementById('signupForm');
-            
-            if (loginForm.classList.contains('hidden')) {
-                loginForm.classList.remove('hidden');
-                signupForm.classList.add('hidden');
+            const registerForm = document.getElementById('registerForm');
+            const authTitle = document.getElementById('authTitle');
+            const toggleText = document.getElementById('toggleAuthMode');
+
+            if (loginForm.style.display === 'none') {
+                loginForm.style.display = 'block';
+                registerForm.style.display = 'none';
+                authTitle.textContent = 'Вход';
+                toggleText.innerHTML = 'Нет аккаунта? <span>Регистрация</span>';
             } else {
-                loginForm.classList.add('hidden');
-                signupForm.classList.remove('hidden');
+                loginForm.style.display = 'none';
+                registerForm.style.display = 'block';
+                authTitle.textContent = 'Регистрация';
+                toggleText.innerHTML = 'Есть аккаунт? <span>Войти</span>';
             }
-        }
-
-        async function logout() {
-            try {
-                await signOut(auth);
-                currentUser = null;
-                showSection('auth');
-                updateUI();
-            } catch (error) {
-                console.error('Ошибка выхода:', error);
-            }
-        }
-
-        // UI functions
-        function showSection(sectionName) {
-            const sections = document.querySelectorAll('.section');
-            sections.forEach(section => section.classList.add('hidden'));
-            
-            const targetSection = document.getElementById(sectionName);
-            if (targetSection) {
-                targetSection.classList.remove('hidden');
-            }
-
-            // Update navigation
-            const navButtons = document.querySelectorAll('.nav-btn');
-            navButtons.forEach(btn => btn.classList.remove('active'));
-            
-            const activeBtn = document.querySelector(`[data-section="${sectionName}"]`);
-            if (activeBtn) {
-                activeBtn.classList.add('active');
-            }
-        }
-
-        function updateUI() {
-            if (currentUser) {
-                document.getElementById('userAvatar').src = '/placeholder.svg?height=80&width=80';
-                document.getElementById('userName').textContent = currentUser.displayName || 'Пользователь';
-                document.getElementById('userEmail').textContent = currentUser.email;
-                document.getElementById('navigation').classList.remove('hidden');
-                loadGames();
-                loadFriends();
-                loadChats();
-            } else {
-                document.getElementById('navigation').classList.add('hidden');
-            }
-        }
-
-        function loadGames() {
-            const gamesContainer = document.getElementById('gamesContainer');
-            gamesContainer.innerHTML = '';
-            
-            testGames.forEach(game => {
-                const gameCard = document.createElement('div');
-                gameCard.className = 'game-card';
-                gameCard.innerHTML = `
-                    <img src="${game.icon}" alt="${game.name}" class="game-icon">
-                    <div class="game-info">
-                        <h3 class="game-title">${game.name}</h3>
-                        <p class="game-description">${game.description}</p>
-                        <div class="game-actions">
-                            <span class="game-price">${game.price}</span>
-                            <button class="btn btn-primary" onclick="buyGame(${game.id})">Купить</button>
-                        </div>
-                    </div>
-                `;
-                gamesContainer.appendChild(gameCard);
-            });
-        }
-
-        function buyGame(gameId) {
-            const game = testGames.find(g => g.id === gameId);
-            alert(`Игра "${game.name}" добавлена в библиотеку!`);
         }
 
         // Chat functions
         function loadChats() {
-            const chatRef = ref(database, 'chats/' + currentChat);
+            const chatRef = ref(database, `chats/${currentChat}`);
             onValue(chatRef, (snapshot) => {
-                const messages = snapshot.val();
-                const messagesContainer = document.getElementById('messagesContainer');
-                messagesContainer.innerHTML = '';
-                
-                if (messages) {
-                    Object.entries(messages).forEach(([key, message]) => {
-                        const messageDiv = document.createElement('div');
-                        messageDiv.className = `message ${message.uid === currentUser.uid ? 'own' : 'other'}`;
-                        messageDiv.innerHTML = `
-                            <div class="message-author">${message.displayName}</div>
-                            <div class="message-text">${message.text}</div>
-                            <div class="message-time">${new Date(message.timestamp).toLocaleTimeString()}</div>
-                        `;
-                        messagesContainer.appendChild(messageDiv);
-                    });
-                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-                }
+                const messages = snapshot.val() || {};
+                const chatMessages = document.getElementById('chatMessages');
+                chatMessages.innerHTML = '';
+
+                Object.entries(messages).forEach(([key, message]) => {
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = `message ${message.userId === currentUser?.uid ? 'own' : ''}`;
+                    messageDiv.innerHTML = `
+                        <div class="message-header">
+                            <span class="message-author">${message.author}</span>
+                            <span class="message-time">${new Date(message.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                        <div class="message-content">${message.text}</div>
+                    `;
+                    chatMessages.appendChild(messageDiv);
+                });
+
+                chatMessages.scrollTop = chatMessages.scrollHeight;
             });
         }
 
         function sendMessage() {
             const messageInput = document.getElementById('messageInput');
-            const text = messageInput.value.trim();
-            
-            if (text && currentUser) {
-                const chatRef = ref(database, 'chats/' + currentChat);
-                push(chatRef, {
-                    text: text,
-                    uid: currentUser.uid,
-                    displayName: currentUser.displayName,
-                    timestamp: Date.now()
-                });
-                messageInput.value = '';
-            }
+            const message = messageInput.value.trim();
+
+            if (!message || !currentUser) return;
+
+            const chatRef = ref(database, `chats/${currentChat}`);
+            push(chatRef, {
+                text: message,
+                author: currentUser.displayName || currentUser.email,
+                userId: currentUser.uid,
+                timestamp: Date.now()
+            });
+
+            messageInput.value = '';
+        }
+
+        // Store functions
+        function loadStore() {
+            const games = [
+                { id: 1, name: 'Cyberpunk 2077', price: '2999₽', image: '/placeholder.svg?height=200&width=300' },
+                { id: 2, name: 'The Witcher 3', price: '1499₽', image: '/placeholder.svg?height=200&width=300' },
+                { id: 3, name: 'GTA V', price: '1999₽', image: '/placeholder.svg?height=200&width=300' },
+                { id: 4, name: 'Red Dead Redemption 2', price: '2499₽', image: '/placeholder.svg?height=200&width=300' }
+            ];
+
+            const gamesList = document.getElementById('gamesList');
+            gamesList.innerHTML = '';
+
+            games.forEach(game => {
+                const gameDiv = document.createElement('div');
+                gameDiv.className = 'game-card';
+                gameDiv.innerHTML = `
+                    <img src="${game.image}" alt="${game.name}" class="game-image">
+                    <div class="game-info">
+                        <h3 class="game-title">${game.name}</h3>
+                        <div class="game-price">${game.price}</div>
+                        <button class="btn btn-primary" onclick="buyGame(${game.id})">Купить</button>
+                    </div>
+                `;
+                gamesList.appendChild(gameDiv);
+            });
+        }
+
+        function buyGame(gameId) {
+            alert('Функция покупки будет добавлена позже');
         }
 
         // Friends functions
@@ -329,41 +285,38 @@
                 alert('Пожалуйста, введите никнейм');
                 return;
             }
-            
-            if (nickname === currentUser.displayName) {
-                alert('Нельзя добавить себя в друзья');
-                return;
-            }
-            
+
             try {
-                console.log('[v0] Searching for user with nickname:', nickname);
-                
-                // Search for user by nickname in users collection
-                const usersRef = ref(database, 'users');
-                const snapshot = await get(usersRef);
-                const users = snapshot.val() || {};
-                
-                console.log('[v0] Users in database:', Object.keys(users).length);
-                
-                let targetUserId = null;
-                let targetUserData = null;
+                console.log('[v0] Looking for user with nickname:', nickname);
                 
                 // Find user by nickname
-                Object.entries(users).forEach(([userId, userData]) => {
-                    console.log('[v0] Checking user:', userData.displayName);
-                    if (userData.displayName === nickname) {
-                        targetUserId = userId;
-                        targetUserData = userData;
-                    }
-                });
+                const nicknameRef = ref(database, `usersByNickname/${nickname.toLowerCase()}`);
+                const nicknameSnapshot = await get(nicknameRef);
                 
-                if (!targetUserId) {
-                    console.log('[v0] User not found with nickname:', nickname);
+                if (!nicknameSnapshot.exists()) {
                     alert('Пользователь с таким никнеймом не найден');
                     return;
                 }
                 
-                console.log('[v0] Found target user:', targetUserId);
+                const targetUserId = nicknameSnapshot.val();
+                console.log('[v0] Found target user ID:', targetUserId);
+                
+                if (targetUserId === currentUser.uid) {
+                    alert('Нельзя добавить себя в друзья');
+                    return;
+                }
+                
+                // Get target user data
+                const targetUserRef = ref(database, `users/${targetUserId}`);
+                const targetUserSnapshot = await get(targetUserRef);
+                
+                if (!targetUserSnapshot.exists()) {
+                    alert('Данные пользователя не найдены');
+                    return;
+                }
+                
+                const targetUserData = targetUserSnapshot.val();
+                console.log('[v0] Target user data:', targetUserData);
                 
                 // Check if already friends or request exists
                 const existingFriendRef = ref(database, `friends/${currentUser.uid}/${targetUserId}`);
@@ -449,33 +402,39 @@
                 currentUser = user;
                 if (user) {
                     showSection('profile');
+                    loadFriends();
+                    loadStore();
+                    loadChats();
+                    
+                    // Update profile info
+                    document.getElementById('userNickname').textContent = user.displayName || 'Пользователь';
+                    document.getElementById('userEmail').textContent = user.email;
                 } else {
                     showSection('auth');
                 }
-                updateUI();
             });
 
-            // Navigation
-            document.querySelectorAll('.nav-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const section = btn.getAttribute('data-section');
-                    showSection(section);
-                });
-            });
-
-            // Message input
-            document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            // Message input enter key
+            document.getElementById('messageInput')?.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     sendMessage();
                 }
             });
+
+            // Friend nickname input enter key
+            document.getElementById('friendNickname')?.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendFriendRequest();
+                }
+            });
         });
 
-        // Global functions
-        window.signUp = signUp;
-        window.signIn = signIn;
-        window.toggleAuthMode = toggleAuthMode;
+        // Make functions global
+        window.register = register;
+        window.login = login;
         window.logout = logout;
+        window.showSection = showSection;
+        window.toggleAuthMode = toggleAuthMode;
         window.sendMessage = sendMessage;
         window.buyGame = buyGame;
         window.sendFriendRequest = sendFriendRequest;
@@ -491,447 +450,385 @@
         }
 
         body {
-            font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--color-background, #ffffff);
-            color: var(--color-foreground, #374151);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            color: #1a1a1a;
             line-height: 1.6;
-            overflow-x: hidden;
-            font-weight: 400;
+            min-height: 100vh;
         }
 
-        .container {
-            max-width: 100%;
+        .app-container {
+            max-width: 480px;
             margin: 0 auto;
-            padding: 0 20px;
+            background: #ffffff;
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .hidden {
-            display: none !important;
-        }
-
-        /* Modern auth section with improved typography and spacing */
-        .auth-section {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            text-align: center;
-            padding: 32px 20px;
-            background: linear-gradient(135deg, var(--color-background) 0%, var(--color-muted) 100%);
-        }
-
-        .app-logo {
-            font-size: 3rem;
-            font-weight: 700;
-            color: var(--color-primary, #15803d);
-            margin-bottom: 12px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .app-subtitle {
-            color: var(--color-muted-foreground, #4b5563);
-            margin-bottom: 48px;
-            font-size: 1.2rem;
-            font-weight: 500;
-            font-family: 'Open Sans', sans-serif;
-        }
-
-        /* Enhanced button styles with modern design */
-        .btn {
-            padding: 14px 28px;
-            border: none;
-            border-radius: var(--radius-lg, 8px);
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.08);
             position: relative;
             overflow: hidden;
         }
 
-        .btn::before {
+        .app-header {
+            background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .app-header::before {
             content: '';
             position: absolute;
             top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-            transition: left 0.5s;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%);
         }
 
-        .btn:hover::before {
-            left: 100%;
+        .app-title {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .app-subtitle {
+            font-size: 14px;
+            opacity: 0.8;
+            margin-top: 4px;
+            font-weight: 400;
+            position: relative;
+            z-index: 1;
+        }
+
+        .section {
+            padding: 24px;
+            min-height: calc(100vh - 140px);
+        }
+
+        .auth-container {
+            max-width: 320px;
+            margin: 40px auto 0;
+        }
+
+        .auth-title {
+            font-size: 24px;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 32px;
+            color: #1a1a1a;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #374151;
+            font-size: 14px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            background: #ffffff;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .btn {
+            padding: 16px 24px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            display: inline-block;
+            text-decoration: none;
+            min-height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, var(--color-primary, #15803d), var(--color-accent, #84cc16));
-            color: var(--color-primary-foreground, #ffffff);
-            border: 2px solid transparent;
+            background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+            color: white;
+            width: 100%;
+            margin-bottom: 16px;
         }
 
         .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(21, 128, 61, 0.3);
-        }
-
-        .btn-secondary {
-            background: var(--color-card, #f0fdf4);
-            color: var(--color-card-foreground, #374151);
-            border: 2px solid var(--color-border, #374151);
-        }
-
-        .btn-secondary:hover {
-            background: var(--color-muted, #f0fdf4);
             transform: translateY(-1px);
-        }
-
-        .btn-success {
-            background: var(--color-accent, #84cc16);
-            color: var(--color-accent-foreground, #ffffff);
-        }
-
-        .btn-danger {
-            background: var(--color-destructive, #ea580c);
-            color: var(--color-destructive-foreground, #ffffff);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
         }
 
         .btn-small {
             padding: 8px 16px;
             font-size: 14px;
-            border-radius: var(--radius-md, 6px);
+            min-height: auto;
         }
 
-        /* Enhanced profile section with modern card design */
-        .profile-header {
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .toggle-auth {
             text-align: center;
-            padding: 40px 24px;
-            background: linear-gradient(135deg, var(--color-primary, #15803d), var(--color-accent, #84cc16));
-            color: var(--color-primary-foreground, #ffffff);
-            border-radius: 0 0 24px 24px;
-            margin-bottom: 24px;
-            box-shadow: 0 8px 32px rgba(21, 128, 61, 0.2);
-        }
-
-        .user-avatar {
-            width: 100px;
-            height: 100px;
-            border-radius: 50%;
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            margin-bottom: 20px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-        }
-
-        .user-name {
-            font-size: 1.8rem;
-            font-weight: 700;
-            margin-bottom: 8px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .user-email {
-            opacity: 0.9;
-            font-size: 1rem;
-            font-family: 'Open Sans', sans-serif;
-        }
-
-        /* Modern navigation with improved visual hierarchy */
-        .navigation {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: var(--color-card, #f0fdf4);
-            border-top: 2px solid var(--color-border, #374151);
-            display: flex;
-            padding: 12px 0;
-            z-index: 100;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
-        }
-
-        .nav-btn {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 12px 8px;
-            background: none;
-            border: none;
-            color: var(--color-muted-foreground, #4b5563);
-            font-size: 12px;
-            font-weight: 500;
+            margin-top: 24px;
+            color: #6b7280;
             cursor: pointer;
-            transition: all 0.3s ease;
-            border-radius: var(--radius-md, 6px);
-            margin: 0 4px;
+            font-size: 14px;
         }
 
-        .nav-btn:hover {
-            background: rgba(21, 128, 61, 0.1);
-            transform: translateY(-2px);
-        }
-
-        .nav-btn.active {
-            color: var(--color-primary, #15803d);
-            background: rgba(21, 128, 61, 0.1);
+        .toggle-auth span {
+            color: #3b82f6;
             font-weight: 600;
         }
 
+        .profile-header {
+            text-align: center;
+            margin-bottom: 32px;
+            padding: 24px;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border-radius: 16px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .profile-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            margin: 0 auto 16px;
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 32px;
+            font-weight: 600;
+        }
+
+        .profile-name {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #1a1a1a;
+        }
+
+        .profile-email {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .navigation {
+            position: fixed;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 480px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid #e5e7eb;
+            padding: 12px 0;
+            display: flex;
+            justify-content: space-around;
+            z-index: 100;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-radius: 12px;
+            min-width: 60px;
+        }
+
+        .nav-item:hover {
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .nav-item.active {
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
+        }
+
         .nav-icon {
-            font-size: 24px;
-            margin-bottom: 6px;
-            transition: transform 0.3s ease;
+            font-size: 20px;
+            margin-bottom: 4px;
         }
 
-        .nav-btn.active .nav-icon {
-            transform: scale(1.1);
+        .nav-text {
+            font-size: 12px;
+            font-weight: 500;
         }
 
-        /* Content */
-        .content {
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 200px);
+        }
+
+        .chat-messages {
             flex: 1;
-            padding-bottom: 100px;
+            overflow-y: auto;
+            padding: 16px 0;
+            margin-bottom: 16px;
         }
 
-        .section {
-            padding: 24px 0;
+        .message {
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            background: #f8fafc;
+            border-radius: 16px;
+            border: 1px solid #e5e7eb;
         }
 
-        /* Enhanced games section with modern card design */
-        .games-container {
+        .message.own {
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            color: white;
+            margin-left: 40px;
+        }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .message-author {
+            font-weight: 600;
+        }
+
+        .message-content {
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .chat-input {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .chat-input input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 24px;
+            font-size: 14px;
+        }
+
+        .chat-input button {
+            padding: 12px 20px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 24px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .games-grid {
             display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 20px;
+            margin-top: 20px;
         }
 
         .game-card {
-            display: flex;
-            background: var(--color-card, #f0fdf4);
-            border-radius: var(--radius-xl, 12px);
-            padding: 20px;
-            gap: 20px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            border: 2px solid transparent;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease;
+            border: 1px solid #e5e7eb;
         }
 
         .game-card:hover {
             transform: translateY(-4px);
-            box-shadow: 0 12px 32px rgba(21, 128, 61, 0.15);
-            border-color: var(--color-primary, #15803d);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
         }
 
-        .game-icon {
-            width: 90px;
-            height: 90px;
-            border-radius: var(--radius-lg, 8px);
+        .game-image {
+            width: 100%;
+            height: 160px;
             object-fit: cover;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
 
         .game-info {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
+            padding: 20px;
         }
 
         .game-title {
-            font-size: 1.25rem;
-            font-weight: 700;
-            margin-bottom: 6px;
-            color: var(--color-foreground, #374151);
-        }
-
-        .game-description {
-            color: var(--color-muted-foreground, #4b5563);
-            font-size: 0.95rem;
-            margin-bottom: 16px;
-            flex: 1;
-            font-family: 'Open Sans', sans-serif;
-            line-height: 1.5;
-        }
-
-        .game-actions {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #1a1a1a;
         }
 
         .game-price {
+            font-size: 20px;
             font-weight: 700;
-            font-size: 1.1rem;
-            color: var(--color-primary, #15803d);
+            color: #3b82f6;
+            margin-bottom: 16px;
         }
 
-        /* Enhanced chat interface with modern messaging design */
-        .chat-container {
-            display: flex;
-            flex-direction: column;
-            height: calc(100vh - 180px);
-            background: var(--color-background, #ffffff);
-            border-radius: var(--radius-xl, 12px);
-            overflow: hidden;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-        }
-
-        .messages-container {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            background: var(--color-muted, #f0fdf4);
-        }
-
-        .message {
-            max-width: 75%;
-            padding: 14px 18px;
-            border-radius: 20px;
-            word-wrap: break-word;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            position: relative;
-        }
-
-        .message.own {
-            align-self: flex-end;
-            background: linear-gradient(135deg, var(--color-primary, #15803d), var(--color-accent, #84cc16));
-            color: var(--color-primary-foreground, #ffffff);
-        }
-
-        .message.other {
-            align-self: flex-start;
-            background: var(--color-card, #f0fdf4);
-            color: var(--color-card-foreground, #374151);
-            border: 1px solid var(--color-border, #374151);
-        }
-
-        .message-author {
-            font-size: 0.8rem;
-            opacity: 0.8;
-            margin-bottom: 6px;
-            font-weight: 600;
-        }
-
-        .message-text {
-            margin-bottom: 6px;
-            font-family: 'Open Sans', sans-serif;
-        }
-
-        .message-time {
-            font-size: 0.7rem;
-            opacity: 0.7;
-        }
-
-        .message-input-container {
-            display: flex;
-            padding: 20px;
-            gap: 16px;
-            background: var(--color-card, #f0fdf4);
-            border-top: 2px solid var(--color-border, #374151);
-        }
-
-        .message-input {
-            flex: 1;
-            padding: 14px 20px;
-            border: 2px solid var(--color-border, #374151);
-            border-radius: 25px;
-            font-size: 16px;
-            outline: none;
-            background: var(--color-background, #ffffff);
-            color: var(--color-foreground, #374151);
-            font-family: 'Open Sans', sans-serif;
-            transition: all 0.3s ease;
-        }
-
-        .message-input:focus {
-            border-color: var(--color-primary, #15803d);
-            box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.1);
-        }
-
-        /* Enhanced friends section with modern card layouts */
         .friends-section {
-            display: flex;
-            flex-direction: column;
-            gap: 28px;
+            margin-bottom: 32px;
         }
 
         .section-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 20px;
-            color: var(--color-foreground, #374151);
-            text-align: center;
-        }
-
-        .add-friend-form {
-            display: flex;
-            gap: 16px;
-            margin-bottom: 28px;
-            padding: 24px;
-            background: var(--color-card, #f0fdf4);
-            border-radius: var(--radius-xl, 12px);
-            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-        }
-
-        .friend-nickname-input {
-            flex: 1;
-            padding: 14px 20px;
-            border: 2px solid var(--color-border, #374151);
-            border-radius: var(--radius-lg, 8px);
-            font-size: 16px;
-            outline: none;
-            background: var(--color-background, #ffffff);
-            color: var(--color-foreground, #374151);
-            font-family: 'Open Sans', sans-serif;
-            transition: all 0.3s ease;
-        }
-
-        .friend-nickname-input:focus {
-            border-color: var(--color-primary, #15803d);
-            box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.1);
-        }
-
-        .friends-list, .friend-requests {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #1a1a1a;
         }
 
         .friend-item, .friend-request {
             display: flex;
             align-items: center;
-            padding: 20px;
-            background: var(--color-card, #f0fdf4);
-            border-radius: var(--radius-xl, 12px);
-            gap: 16px;
-            transition: all 0.3s ease;
-            border: 2px solid transparent;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-        }
-
-        .friend-item:hover, .friend-request:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(21, 128, 61, 0.12);
-            border-color: var(--color-primary, #15803d);
+            padding: 16px;
+            background: white;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            border: 1px solid #e5e7eb;
         }
 
         .friend-avatar {
-            width: 60px;
-            height: 60px;
+            width: 48px;
+            height: 48px;
             border-radius: 50%;
+            margin-right: 12px;
             object-fit: cover;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
 
         .friend-info {
@@ -939,222 +836,178 @@
         }
 
         .friend-name {
-            font-weight: 700;
-            font-size: 1.1rem;
-            margin-bottom: 4px;
-            color: var(--color-foreground, #374151);
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 2px;
         }
 
-        .friend-status, .friend-email {
-            font-size: 0.9rem;
-            color: var(--color-muted-foreground, #4b5563);
-            font-family: 'Open Sans', sans-serif;
+        .friend-status {
+            font-size: 12px;
+            color: #10b981;
+        }
+
+        .friend-email {
+            font-size: 12px;
+            color: #6b7280;
         }
 
         .request-actions {
             display: flex;
-            gap: 12px;
+            gap: 8px;
         }
 
-        /* Enhanced form inputs with modern styling */
-        .auth-form {
-            width: 100%;
-            max-width: 360px;
+        .add-friend {
             display: flex;
-            flex-direction: column;
-            gap: 20px;
+            gap: 12px;
             margin-bottom: 24px;
-            padding: 32px;
-            background: var(--color-card, #f0fdf4);
-            border-radius: var(--radius-xl, 12px);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-            border: 2px solid var(--color-border, #374151);
         }
 
-        .form-input {
-            padding: 16px 20px;
-            border: 2px solid var(--color-border, #374151);
-            border-radius: var(--radius-lg, 8px);
-            font-size: 16px;
-            outline: none;
-            background: var(--color-background, #ffffff);
-            color: var(--color-foreground, #374151);
-            font-family: 'Open Sans', sans-serif;
-            transition: all 0.3s ease;
+        .add-friend input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            font-size: 14px;
         }
 
-        .form-input:focus {
-            border-color: var(--color-primary, #15803d);
-            box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.1);
-            transform: translateY(-1px);
-        }
-
-        .auth-toggle {
-            color: var(--color-primary, #15803d);
-            text-decoration: none;
-            font-weight: 600;
+        .add-friend button {
+            padding: 12px 20px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 12px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            font-weight: 600;
+            white-space: nowrap;
         }
 
-        .auth-toggle:hover {
-            text-decoration: underline;
-            color: var(--color-accent, #84cc16);
-        }
-
-        /* Responsive Design */
         @media (max-width: 480px) {
-            .container {
-                padding: 0 16px;
-            }
-            
-            .game-card {
+            .section {
                 padding: 16px;
-                flex-direction: column;
-                text-align: center;
             }
             
-            .game-icon {
-                width: 80px;
-                height: 80px;
-                align-self: center;
+            .games-grid {
+                grid-template-columns: 1fr;
             }
             
-            .message {
-                max-width: 85%;
-            }
-            
-            .add-friend-form {
-                flex-direction: column;
-                padding: 20px;
-            }
-            
-            .auth-form {
-                padding: 24px;
-                margin: 0 16px 24px;
+            .auth-container {
+                margin-top: 20px;
             }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Auth Section -->
-        <div id="auth" class="section auth-section">
-            <div class="app-logo">🎮 Project West</div>
-            <div class="app-subtitle">Твоя игровая платформа</div>
-            
-            <!-- Login Form -->
-            <div id="loginForm" class="auth-form">
-                <input type="email" id="loginEmail" class="form-input" placeholder="Email" required>
-                <input type="password" id="loginPassword" class="form-input" placeholder="Пароль" required>
-                <button class="btn btn-primary" onclick="signIn()">
-                    🔐 Войти
-                </button>
-                <div style="text-align: center;">
-                    <span>Нет аккаунта? </span>
-                    <a class="auth-toggle" onclick="toggleAuthMode()">Зарегистрироваться</a>
-                </div>
-            </div>
+    <div class="app-container">
+        <div class="app-header">
+            <h1 class="app-title">Project West</h1>
+            <p class="app-subtitle">Gaming Community Platform</p>
+        </div>
 
-            <!-- Signup Form -->
-            <div id="signupForm" class="auth-form hidden">
-                <input type="text" id="signupNickname" class="form-input" placeholder="Никнейм" required>
-                <input type="email" id="signupEmail" class="form-input" placeholder="Email" required>
-                <input type="password" id="signupPassword" class="form-input" placeholder="Пароль (минимум 6 символов)" required>
-                <button class="btn btn-primary" onclick="signUp()">
-                    📝 Зарегистрироваться
-                </button>
-                <div style="text-align: center;">
-                    <span>Уже есть аккаунт? </span>
-                    <a class="auth-toggle" onclick="toggleAuthMode()">Войти</a>
+        <!-- Auth Section -->
+        <div id="auth" class="section">
+            <div class="auth-container">
+                <h2 id="authTitle" class="auth-title">Вход</h2>
+                
+                <!-- Login Form -->
+                <div id="loginForm">
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" id="loginEmail" class="form-input" placeholder="your@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Пароль</label>
+                        <input type="password" id="loginPassword" class="form-input" placeholder="••••••••">
+                    </div>
+                    <button class="btn btn-primary" onclick="login()">Войти</button>
+                </div>
+
+                <!-- Register Form -->
+                <div id="registerForm" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">Никнейм</label>
+                        <input type="text" id="registerNickname" class="form-input" placeholder="Ваш никнейм">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" id="registerEmail" class="form-input" placeholder="your@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Пароль</label>
+                        <input type="password" id="registerPassword" class="form-input" placeholder="••••••••">
+                    </div>
+                    <button class="btn btn-primary" onclick="register()">Зарегистрироваться</button>
+                </div>
+
+                <div class="toggle-auth" id="toggleAuthMode" onclick="toggleAuthMode()">
+                    Нет аккаунта? <span>Регистрация</span>
                 </div>
             </div>
         </div>
 
         <!-- Profile Section -->
-        <div id="profile" class="section hidden">
+        <div id="profile" class="section" style="display: none;">
             <div class="profile-header">
-                <img id="userAvatar" src="/placeholder.svg?height=80&width=80" alt="Avatar" class="user-avatar">
-                <div id="userName" class="user-name">Пользователь</div>
-                <div id="userEmail" class="user-email">email@example.com</div>
-                <button class="btn btn-secondary" onclick="logout()" style="margin-top: 15px;">
-                    Выйти
-                </button>
+                <div class="profile-avatar">👤</div>
+                <div class="profile-name" id="userNickname">Пользователь</div>
+                <div class="profile-email" id="userEmail">user@example.com</div>
             </div>
-        </div>
-
-        <!-- Games Section -->
-        <div id="games" class="section hidden">
-            <div class="content">
-                <h2 class="section-title">🎮 Магазин игр</h2>
-                <div id="gamesContainer" class="games-container">
-                    <!-- Games will be loaded here -->
-                </div>
-            </div>
+            <button class="btn btn-primary" onclick="logout()">Выйти</button>
         </div>
 
         <!-- Chat Section -->
-        <div id="chat" class="section hidden">
-            <div class="content">
-                <h2 class="section-title">💬 Общий чат</h2>
-                <div class="chat-container">
-                    <div id="messagesContainer" class="messages-container">
-                        <!-- Messages will be loaded here -->
-                    </div>
-                    <div class="message-input-container">
-                        <input type="text" id="messageInput" class="message-input" placeholder="Введите сообщение...">
-                        <button class="btn btn-primary" onclick="sendMessage()">📤</button>
-                    </div>
+        <div id="chat" class="section" style="display: none;">
+            <div class="chat-container">
+                <div class="chat-messages" id="chatMessages"></div>
+                <div class="chat-input">
+                    <input type="text" id="messageInput" placeholder="Введите сообщение...">
+                    <button onclick="sendMessage()">Отправить</button>
                 </div>
             </div>
         </div>
 
+        <!-- Store Section -->
+        <div id="store" class="section" style="display: none;">
+            <h2 class="section-title">Магазин игр</h2>
+            <div class="games-grid" id="gamesList"></div>
+        </div>
+
         <!-- Friends Section -->
-        <div id="friends" class="section hidden">
-            <div class="content friends-section">
-                <h2 class="section-title">👥 Друзья</h2>
-                
-                <!-- Updated form to use nickname instead of email -->
-                <div class="add-friend-form">
-                    <input type="text" id="friendNickname" class="friend-nickname-input" placeholder="Никнейм друга">
-                    <button class="btn btn-primary" onclick="sendFriendRequest()">Добавить</button>
-                </div>
+        <div id="friends" class="section" style="display: none;">
+            <div class="add-friend">
+                <input type="text" id="friendNickname" placeholder="Никнейм друга">
+                <button onclick="sendFriendRequest()">Добавить</button>
+            </div>
 
-                <div>
-                    <h3 class="section-title">Заявки в друзья</h3>
-                    <div id="friendRequests" class="friend-requests">
-                        <!-- Friend requests will be loaded here -->
-                    </div>
-                </div>
+            <div class="friends-section">
+                <h3 class="section-title">Заявки в друзья</h3>
+                <div id="friendRequests"></div>
+            </div>
 
-                <div>
-                    <h3 class="section-title">Мои друзья</h3>
-                    <div id="friendsList" class="friends-list">
-                        <!-- Friends will be loaded here -->
-                    </div>
-                </div>
+            <div class="friends-section">
+                <h3 class="section-title">Мои друзья</h3>
+                <div id="friendsList"></div>
             </div>
         </div>
 
         <!-- Navigation -->
-        <nav id="navigation" class="navigation hidden">
-            <button class="nav-btn active" data-section="profile">
+        <div class="navigation">
+            <div class="nav-item" onclick="showSection('profile')">
                 <div class="nav-icon">👤</div>
-                <div>Профиль</div>
-            </button>
-            <button class="nav-btn" data-section="games">
-                <div class="nav-icon">🎮</div>
-                <div>Игры</div>
-            </button>
-            <button class="nav-btn" data-section="chat">
+                <div class="nav-text">Профиль</div>
+            </div>
+            <div class="nav-item" onclick="showSection('chat')">
                 <div class="nav-icon">💬</div>
-                <div>Чат</div>
-            </button>
-            <button class="nav-btn" data-section="friends">
+                <div class="nav-text">Чат</div>
+            </div>
+            <div class="nav-item" onclick="showSection('store')">
+                <div class="nav-icon">🎮</div>
+                <div class="nav-text">Магазин</div>
+            </div>
+            <div class="nav-item" onclick="showSection('friends')">
                 <div class="nav-icon">👥</div>
-                <div>Друзья</div>
-            </button>
-        </nav>
+                <div class="nav-text">Друзья</div>
+            </div>
+        </div>
     </div>
 </body>
 </html>
