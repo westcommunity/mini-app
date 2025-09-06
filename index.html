@@ -7,7 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
         import { getDatabase, ref, push, onValue, set, get, child } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
         const firebaseConfig = {
@@ -22,7 +22,6 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const database = getDatabase(app);
-        const provider = new GoogleAuthProvider();
 
         let currentUser = null;
         let currentChat = 'general';
@@ -64,15 +63,65 @@
         ];
 
         // Auth functions
-        async function signInWithGoogle() {
+        async function signUp() {
+            const email = document.getElementById('signupEmail').value.trim();
+            const password = document.getElementById('signupPassword').value.trim();
+            const nickname = document.getElementById('signupNickname').value.trim();
+            
+            if (!email || !password || !nickname) {
+                alert('Пожалуйста, заполните все поля');
+                return;
+            }
+            
+            if (password.length < 6) {
+                alert('Пароль должен содержать минимум 6 символов');
+                return;
+            }
+            
             try {
-                const result = await signInWithPopup(auth, provider);
+                const result = await createUserWithEmailAndPassword(auth, email, password);
+                await updateProfile(result.user, {
+                    displayName: nickname
+                });
                 currentUser = result.user;
                 showSection('profile');
                 updateUI();
             } catch (error) {
-                console.error('Ошибка авторизации:', error);
-                alert('Ошибка авторизации: ' + error.message);
+                console.error('Ошибка регистрации:', error);
+                alert('Ошибка регистрации: ' + error.message);
+            }
+        }
+
+        async function signIn() {
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value.trim();
+            
+            if (!email || !password) {
+                alert('Пожалуйста, заполните все поля');
+                return;
+            }
+            
+            try {
+                const result = await signInWithEmailAndPassword(auth, email, password);
+                currentUser = result.user;
+                showSection('profile');
+                updateUI();
+            } catch (error) {
+                console.error('Ошибка входа:', error);
+                alert('Ошибка входа: ' + error.message);
+            }
+        }
+
+        function toggleAuthMode() {
+            const loginForm = document.getElementById('loginForm');
+            const signupForm = document.getElementById('signupForm');
+            
+            if (loginForm.classList.contains('hidden')) {
+                loginForm.classList.remove('hidden');
+                signupForm.classList.add('hidden');
+            } else {
+                loginForm.classList.add('hidden');
+                signupForm.classList.remove('hidden');
             }
         }
 
@@ -109,7 +158,7 @@
 
         function updateUI() {
             if (currentUser) {
-                document.getElementById('userAvatar').src = currentUser.photoURL || '/placeholder.svg?height=80&width=80';
+                document.getElementById('userAvatar').src = '/placeholder.svg?height=80&width=80';
                 document.getElementById('userName').textContent = currentUser.displayName || 'Пользователь';
                 document.getElementById('userEmail').textContent = currentUser.email;
                 document.getElementById('navigation').classList.remove('hidden');
@@ -311,7 +360,9 @@
         });
 
         // Global functions
-        window.signInWithGoogle = signInWithGoogle;
+        window.signUp = signUp;
+        window.signIn = signIn;
+        window.toggleAuthMode = toggleAuthMode;
         window.logout = logout;
         window.sendMessage = sendMessage;
         window.buyGame = buyGame;
@@ -712,6 +763,41 @@
                 max-width: 85%;
             }
         }
+
+        /* Auth Forms */
+        .auth-form {
+            width: 100%;
+            max-width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .form-input {
+            padding: 12px 16px;
+            border: 1px solid var(--tg-theme-section-separator-color, #e0e0e0);
+            border-radius: 12px;
+            font-size: 16px;
+            outline: none;
+            background: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+        }
+
+        .form-input:focus {
+            border-color: var(--tg-theme-button-color, #0088cc);
+        }
+
+        .auth-toggle {
+            color: var(--tg-theme-button-color, #0088cc);
+            text-decoration: none;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .auth-toggle:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -720,9 +806,33 @@
         <div id="auth" class="section auth-section">
             <div class="app-logo">🎮 Project West</div>
             <div class="app-subtitle">Твоя игровая платформа</div>
-            <button class="btn btn-primary" onclick="signInWithGoogle()">
-                🔐 Войти через Google
-            </button>
+            
+            <!-- Login Form -->
+            <div id="loginForm" class="auth-form">
+                <input type="email" id="loginEmail" class="form-input" placeholder="Email" required>
+                <input type="password" id="loginPassword" class="form-input" placeholder="Пароль" required>
+                <button class="btn btn-primary" onclick="signIn()">
+                    🔐 Войти
+                </button>
+                <div style="text-align: center;">
+                    <span>Нет аккаунта? </span>
+                    <a class="auth-toggle" onclick="toggleAuthMode()">Зарегистрироваться</a>
+                </div>
+            </div>
+
+            <!-- Signup Form -->
+            <div id="signupForm" class="auth-form hidden">
+                <input type="text" id="signupNickname" class="form-input" placeholder="Никнейм" required>
+                <input type="email" id="signupEmail" class="form-input" placeholder="Email" required>
+                <input type="password" id="signupPassword" class="form-input" placeholder="Пароль (минимум 6 символов)" required>
+                <button class="btn btn-primary" onclick="signUp()">
+                    📝 Зарегистрироваться
+                </button>
+                <div style="text-align: center;">
+                    <span>Уже есть аккаунт? </span>
+                    <a class="auth-toggle" onclick="toggleAuthMode()">Войти</a>
+                </div>
+            </div>
         </div>
 
         <!-- Profile Section -->
