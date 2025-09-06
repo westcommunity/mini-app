@@ -336,16 +336,21 @@
             }
             
             try {
+                console.log('[v0] Searching for user with nickname:', nickname);
+                
                 // Search for user by nickname in users collection
                 const usersRef = ref(database, 'users');
                 const snapshot = await get(usersRef);
                 const users = snapshot.val() || {};
+                
+                console.log('[v0] Users in database:', Object.keys(users).length);
                 
                 let targetUserId = null;
                 let targetUserData = null;
                 
                 // Find user by nickname
                 Object.entries(users).forEach(([userId, userData]) => {
+                    console.log('[v0] Checking user:', userData.displayName);
                     if (userData.displayName === nickname) {
                         targetUserId = userId;
                         targetUserData = userData;
@@ -353,9 +358,12 @@
                 });
                 
                 if (!targetUserId) {
+                    console.log('[v0] User not found with nickname:', nickname);
                     alert('Пользователь с таким никнеймом не найден');
                     return;
                 }
+                
+                console.log('[v0] Found target user:', targetUserId);
                 
                 // Check if already friends or request exists
                 const existingFriendRef = ref(database, `friends/${currentUser.uid}/${targetUserId}`);
@@ -371,6 +379,8 @@
                     return;
                 }
                 
+                console.log('[v0] Creating friend request...');
+                
                 // Create friend request
                 const requestData = {
                     displayName: targetUserData.displayName,
@@ -381,23 +391,30 @@
                     timestamp: Date.now()
                 };
                 
-                // Add to both users' friend lists
-                await set(ref(database, `friends/${currentUser.uid}/${targetUserId}`), requestData);
-                await set(ref(database, `friends/${targetUserId}/${currentUser.uid}`), {
-                    ...requestData,
+                const currentUserData = {
                     displayName: currentUser.displayName,
                     email: currentUser.email,
                     photoURL: currentUser.photoURL || null,
-                    requestedBy: currentUser.uid
-                });
+                    status: 'pending',
+                    requestedBy: currentUser.uid,
+                    timestamp: Date.now()
+                };
                 
+                // Add to both users' friend lists
+                await Promise.all([
+                    set(ref(database, `friends/${currentUser.uid}/${targetUserId}`), requestData),
+                    set(ref(database, `friends/${targetUserId}/${currentUser.uid}`), currentUserData)
+                ]);
+                
+                console.log('[v0] Friend request sent successfully');
                 alert('Заявка в друзья отправлена!');
                 document.getElementById('friendNickname').value = '';
                 loadFriends();
                 
             } catch (error) {
-                console.error('Ошибка отправки заявки:', error);
-                alert('Ошибка отправки заявки');
+                console.error('[v0] Error sending friend request:', error);
+                console.error('[v0] Error details:', error.message);
+                alert('Ошибка отправки заявки: ' + error.message);
             }
         }
 
